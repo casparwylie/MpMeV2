@@ -87,7 +87,6 @@ class DataManager:
   def __init__(self, name):
     eel.expose('get_artists_' + name)(self.get_artists)
     eel.expose('get_tracks_by_artist_' + name)(self.get_tracks_by_artist)
-    eel.expose('load_all_data_' + name)(self.load_all_data)
     self.name = name
 
   def load_all_data(self, verbose=False):

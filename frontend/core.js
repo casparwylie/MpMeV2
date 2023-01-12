@@ -13,3 +13,4 @@ for (element of document.getElementsByClassName("closer")) {
     document.getElementById(element.getAttribute('close')).style = 'display: none';
   })
 }
+

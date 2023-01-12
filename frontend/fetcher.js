@@ -87,7 +87,7 @@ function submitFetcher() {
       row.remove();
     }
     fetchSubmit.style = 'display: none';
-    eel.fetch_tracks(data);
+    eel.fetch_tracks(data)((_) => {browser.loadArtists();});
   }
 }
 
