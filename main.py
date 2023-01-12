@@ -26,7 +26,6 @@ def mprint(message, mood='normal'):
   print('\n' + message)
 
 
-
 class Track:
 
   def __init__(self, artist: str, title: str, fetcher_id: str = ''):
