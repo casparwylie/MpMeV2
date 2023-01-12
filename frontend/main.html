@@ -1,0 +1,199 @@
+<html>
+<head>
+  <title>MpMeV2</title>
+  <script type="text/javascript" src="/eel.js"></script>
+  <script type="text/javascript" src="/core.js" defer></script>
+  <script type="text/javascript" src="/fetcher.js" defer></script>
+  <script type="text/javascript" src="/browser.js" defer></script>
+  <style>
+
+    @import url('https://fonts.googleapis.com/css2?family=Work+Sans&display=swap');
+
+    body {
+      font-family: 'Work Sans', sans-serif;
+      margin: 0;
+    }
+
+    input {
+      font-family: 'Work Sans', sans-serif;
+    }
+
+    h2 {
+      color: #6ca4bc;
+    }
+
+    #main-menu {
+      top: 10px;
+      background: #87CEEB;
+      border-radius: 5px;
+      margin: 0 auto;
+      justify-content: center;
+      display: flex;
+    }
+
+    .main-menu-option {
+      background: #517b8d;
+      border-right: 3px solid #87CEEB;
+      text-align: center;
+      font-size: 25px;
+      cursor: pointer;
+      padding: 20px;
+    }
+
+
+    #track-viewer {
+    }
+
+    #device-list {
+      display: flex;
+    }
+
+    .b-1 {
+      padding: 5px;
+      border-right: 3px solid #517b8d;
+      background: #517b8d;
+      cursor: pointer;
+    }
+
+    .list-column {
+      border-right: 3px solid white;
+      background: #87CEEB;
+      border-radius: 5px;
+      padding: 20px;
+    }
+
+    #dual-list {
+      display: flex;
+    }
+
+    #fetcher-container {
+      position: absolute;
+      width: 40vw;
+      text-align: center;
+      background: #87CEEB;
+      display: none;
+      box-shadow: 0px 0px 20px grey;
+      margin-top: 10vh;
+      margin-left: calc(30vw);
+      padding: 20px;
+    }
+
+    .i-1 {
+      outline-width: 0px;
+      font-size: 20px;
+      text-align: center;
+      border: 0;
+    }
+
+    .fetcher-input {
+      width: 50%;
+      padding: 5px;
+      margin-top: 5px;
+    }
+
+    #fetcher-submit {
+      margin-top: 5px;
+      font-size: 20px;
+    }
+
+    .fetcher-row {
+    }
+
+    .normal {
+      background: #d0ae43;
+    }
+
+    .good {
+      background: #66cdaa;
+    }
+
+    .bad {
+      background: #ff6666;
+    }
+
+    .informer-message {
+      width: 100vw;
+      text-align: center;
+      padding: 5px;
+    }
+
+    #informer {
+      position: absolute;
+      z-index: 100;
+    }
+
+    .progress-container {
+      width: 100%;
+      text-align: center;
+      position: relative;
+      padding-top: 10px;
+      padding-bottom: 10px;
+      z-index: 1;
+    }
+
+    .progress-bar {
+      opacity: 0.7;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      margin: 0;
+      z-index: -1;
+    }
+
+
+    .artist-row {
+      cursor: pointer;
+
+    }
+    .artist-row:hover {
+      text-decoration: underline;
+    }
+
+    .artist-selected {
+      font-weight: bold;
+      text-decoration: underline;
+    }
+
+    .closer {
+      width: 100%;
+      text-align: right;
+      padding-bottom: 10px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="informer"></div>
+  <div id="fetcher-container">
+    <div class="closer" close="fetcher-container">x</div>
+    <div id="fetcher-track-rows"></div>
+    <div id="fetcher-submit" class="b-1">Fetch!</div>
+  </div>
+  <div id="main-menu">
+    <div class="main-menu-option" id="fetch-option">Fetch YouTube</div>
+    <div class="main-menu-option">Something Else</div>
+    <div class="main-menu-option">Exit</div>
+    <div class="main-menu-option">Another</div>
+  </div><br>
+  <div id="track-viewer">
+    <div id="device-list">
+      <div class="b-1">Local</div>
+      <div class="b-1">Device</div>
+    </div>
+    <div id="dual-list">
+      <div id="list-container" class="list-column">
+        <h2>Artists</h2>
+        <div id="artist-list"></div>
+        <h2>Playlists</h2>
+        <div id="playlist-list"></div>
+        <h2>Special</h2>
+        <div id="special-list"></div>
+      </div>
+      <div id="track-container" class="list-column">
+        <h2>Tracks</h2>
+        <div id="track-list"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
