@@ -2,7 +2,9 @@ import eel
 from dataclasses import dataclass
 import subprocess
 import youtube_dl
+import platform
 import eyed3
+import threading
 import os
 
 DATA_DIR = 'data'
@@ -18,6 +20,14 @@ YDL_BASE_OPTS = {
     # May fix 403s according to https://stackoverflow.com/questions/32104702/youtube-dl-library-and-error-403-forbidden-when-using-generated-direct-link-by
     # 'cachedir': False,
 }
+PLATFORM = platform.platform()
+IGNORE_DISKS = {'Macintosh HD'}
+MAC_VOLUMES_DIR = '/Volumes'
+LINUX_MOUNT_DIR = '/mnt'
+MAC_PLATFORM_PART = 'macOS'
+LINUX_PLATFORM_PART = 'Linux'
+
+UNSUPPORTED_OS_MSG = 'OS not supported'
 
 
 
@@ -84,10 +94,12 @@ class Track:
 
 class DataManager:
 
-  def __init__(self, name):
+  def __init__(self, name, path):
     eel.expose('get_artists_' + name)(self.get_artists)
     eel.expose('get_tracks_by_artist_' + name)(self.get_tracks_by_artist)
+    print(name)
     self.name = name
+    self.path = path
 
   def load_all_data(self, verbose=False):
     if verbose:
@@ -95,29 +107,40 @@ class DataManager:
     try:
       self.tracks = []
       filenames = [
-        item for item in os.listdir(DATA_DIR)
+        item for item in os.listdir(self.path)
         if item.endswith('.' + AUDIO_FORMAT)
       ]
       for fname in filenames:
-        eyed3_file = eyed3.load(os.path.join(DATA_DIR, fname))
-        self.tracks.append(
-          Track(artist=eyed3_file.tag.artist, title=eyed3_file.tag.title)
-        )
+        eyed3_file = eyed3.load(os.path.join(self.path, fname))
+        if eyed3_file and (not eyed3_file.tag.artist) and eyed3_file.tag.album:
+          eyed3_file.tag.artist = eyed3_file.tag.album
+          eyed3_file.tag.title = fname.split(',')[0]
+
+        if eyed3_file and eyed3_file.tag.artist and eyed3_file.tag.title:
+          self.tracks.append(
+            Track(artist=eyed3_file.tag.artist, title=eyed3_file.tag.title)
+          )
+        else:
+          self.report_mystery_file(fname)
       if verbose:
         mprint(f'Successfully loaded data from {self.name}!', 'good')
     except Exception as error:
-      mprint(error, 'bad')
+      mprint(str(error), 'bad')
+
+  def report_mystery_file(self, name):
+    ...
 
   def get_artists(self):
+    # Consider improving performance
+    self.load_all_data()
     return sorted({track.artist for track in self.tracks})
 
   def get_tracks_by_artist(self, artist):
+    # Consider improving performance
     return sorted(track.title for track in self.tracks if track.artist == artist)
 
 
-
-@eel.expose
-def fetch_tracks(data):
+def _fetch_tracks(data):
   for item in data:
     if item['artist'].strip() and item['title'].strip():
       track = Track(
@@ -128,12 +151,60 @@ def fetch_tracks(data):
       track.fetch()
       track.tag()
   mprint('Finished fetching tracks!', 'normal')
-  data_manager.load_all_data()
+
+@eel.expose
+def fetch_tracks(data):
+  threading.Thread(target=_fetch_tracks, args=(data,)).start()
 
 
-data_manager = DataManager('local')
+class DeviceManager:
+
+  def __init__(self):
+    self.available_disks = []
+    self.selected_disk = None
+    self.data_manager = DataManager('device', path='')
+
+  @property
+  def device_location_path(self):
+    if MAC_PLATFORM_PART in PLATFORM:
+      return MAC_VOLUMES_DIR
+    raise Exception(UNSUPPORTED_OS_MSG)
+
+  def find_disks(self):
+    available_disks = set(os.listdir(self.device_location_path))
+    return available_disks - IGNORE_DISKS
+
+  def _poll_disks(self):
+    while True:
+      new_disks = self.find_disks()
+      if self.selected_disk and self.selected_disk not in new_disks:
+        self.selected_disk = None
+        mprint('External disk removed', 'bad')
+      if detected_diff := (new_disks - self.available_disks):
+        mprint('External disk detected!', 'good')
+        self.selected_disk = list(detected_diff)[0]
+        self.read_disk()
+        eel.updateDisk(self.selected_disk)
+      self.available_disks = new_disks
+      eel.sleep(1)
+
+  def poll_disks(self):
+    self.available_disks = self.find_disks()
+    threading.Thread(target=self._poll_disks).start()
+
+  def read_disk(self):
+    if not self.selected_disk:
+      raise Exception('Unexpected disk read')
+    self.data_manager.path=os.path.join(
+      self.device_location_path, self.selected_disk,
+    )
+
 
 def main():
+
+  data_manager = DataManager(name='local', path=DATA_DIR)
+  device_manager = DeviceManager()
+  device_manager.poll_disks()
 
   eel.init('frontend')
 

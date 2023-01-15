@@ -71,7 +71,7 @@ function submitFetcher() {
   for (var row of rows) {
     const artist = row.children[0].value;
     const title = row.children[1].value;
-    if (!artist || !title) {
+    if (!(artist && title)) {
       rowsToDelete.push(row);
     } else {
       data.push({
@@ -87,7 +87,9 @@ function submitFetcher() {
       row.remove();
     }
     fetchSubmit.style = 'display: none';
-    eel.fetch_tracks(data)((_) => {browser.loadArtists();});
+    eel.fetch_tracks(data)((_) => {
+      browser.loadArtists();
+    });
   }
 }
 
