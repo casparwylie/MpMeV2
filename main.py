@@ -2,12 +2,14 @@ import eel
 from dataclasses import dataclass
 import subprocess
 import youtube_dl
+import json
 import platform
 import eyed3
 import threading
 import os
 
 DATA_DIR = 'data'
+CACHE_FILE = '.__cache__.json'
 RETRY_ATTEMPTS = 3
 AUDIO_FORMAT = 'mp3'
 YDL_BASE_OPTS = {
@@ -53,11 +55,11 @@ class Track:
 
   @property
   def file_name(self):
-    return self.full_name
+    return f'{self.full_name}.{AUDIO_FORMAT}'
 
   @property
   def full_path(self):
-    return os.path.join(DATA_DIR, f'{self.file_name}.{AUDIO_FORMAT}')
+    return os.path.join(DATA_DIR, self.file_name)
 
   def download_progress_hook(self, info):
     return eel.updateFetcherTrackProgress(self.fetcher_id, info.get('_percent_str', "100%"))
@@ -90,6 +92,24 @@ class Track:
     eyed3_file.tag.artist = self.artist
     eyed3_file.tag.title = self.title
     eyed3_file.tag.save()
+    self.cache()
+
+  @classmethod
+  def fetch_from_cache(cls, file_name, data):
+    item = data.get(file_name)
+    if item:
+      print('GOT FROM CACHE!!!')
+      return cls(artist=item['artist'], title=item['title'])
+
+  def as_dict(self):
+    return {
+      'artist': self.artist,
+      'title': self.title,
+    }
+
+  def cache(self, key, data):
+    if not data.get(key):
+      data[key] = self.as_dict()
 
 
 class DataManager:
@@ -97,11 +117,15 @@ class DataManager:
   def __init__(self, name, path):
     eel.expose('get_artists_' + name)(self.get_artists)
     eel.expose('get_tracks_by_artist_' + name)(self.get_tracks_by_artist)
-    print(name)
     self.name = name
     self.path = path
 
   def load_all_data(self, verbose=False):
+
+    # use context manager (enter -> read, exit -> write)
+    # for cache
+    with open(CACHE_FILE, 'r') as cfile:
+      cached_data = json.load(cfile)
     if verbose:
       mprint(f'Loading all data from {self.name}...', 'normal')
     try:
@@ -111,21 +135,35 @@ class DataManager:
         if item.endswith('.' + AUDIO_FORMAT)
       ]
       for fname in filenames:
-        eyed3_file = eyed3.load(os.path.join(self.path, fname))
-        if eyed3_file and (not eyed3_file.tag.artist) and eyed3_file.tag.album:
-          eyed3_file.tag.artist = eyed3_file.tag.album
-          eyed3_file.tag.title = fname.split(',')[0]
-
-        if eyed3_file and eyed3_file.tag.artist and eyed3_file.tag.title:
-          self.tracks.append(
-            Track(artist=eyed3_file.tag.artist, title=eyed3_file.tag.title)
-          )
-        else:
-          self.report_mystery_file(fname)
+        print(fname)
+        if (track := Track.fetch_from_cache(fname, data=cached_data)):
+          """
+          eyed3_file = eyed3.load(os.path.join(self.path, fname))
+          if (
+            eyed3_file
+            and eyed3_file.tag
+            #and eyed3_file.tag.artist
+            #and eyed3_file.tag.title
+            and eyed3_file.tag.album
+          ):
+            track = Track(
+              artist=eyed3_file.tag.album, title=fname.split(',')[0]
+            )
+            print('CACHING', track.full_name)
+            track.cache(fname, data=cached_data)
+          else:
+            self.report_mystery_file(fname)
+            continue
+          """
+          self.tracks.append(track)
       if verbose:
         mprint(f'Successfully loaded data from {self.name}!', 'good')
     except Exception as error:
       mprint(str(error), 'bad')
+    with open(CACHE_FILE, 'w') as cfile:
+      json.dump(cached_data, cfile)
+
+
 
   def report_mystery_file(self, name):
     ...
@@ -184,7 +222,6 @@ class DeviceManager:
         mprint('External disk detected!', 'good')
         self.selected_disk = list(detected_diff)[0]
         self.read_disk()
-        eel.updateDisk(self.selected_disk)
       self.available_disks = new_disks
       eel.sleep(1)
 

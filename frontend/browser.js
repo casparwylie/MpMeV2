@@ -36,7 +36,7 @@ function loadTracks(artist, source) {
 
 eel.expose(updateDisk)
 function updateDisk(name) {
-
+  loadArists('local');
 }
 
 loadArtists('local');
