@@ -1,6 +1,7 @@
 import eel
 from dataclasses import dataclass
 import subprocess
+import enum
 import youtube_dl
 import json
 import platform
@@ -9,7 +10,8 @@ import threading
 import os
 
 DATA_DIR = 'data'
-CACHE_FILE = '.__cache__.json'
+CACHE_FILENAME = '.__cache__.json'
+UNKNOWN = '_UNKNOWN_'
 RETRY_ATTEMPTS = 3
 AUDIO_FORMAT = 'mp3'
 YDL_BASE_OPTS = {
@@ -38,12 +40,59 @@ def mprint(message, mood='normal'):
   print('\n' + message)
 
 
-class Track:
+class Cache:
+  def __init__(self, cache_filename):
+    self.cache_filename = cache_filename
+    self._touch()
+    self._data = {}
 
+  def __enter__(self):
+    with open(self.cache_filename, 'r') as cfile:
+     self._data = json.load(cfile)
+    return self
+
+  def __exit__(self, *args):
+    with open(self.cache_filename, 'w') as cfile:
+      json.dump(self._data, cfile)
+
+  def _touch(self):
+    if not os.path.exists(self.cache_filename):
+      with open(self.cache_filename, 'w') as cfile:
+        json.dump({}, cfile)
+
+  def get(self, key):
+    return self._data.get(key)
+
+  def set(self, key, value):
+    self._data[key] = value
+
+
+class Caches:
+  Tracks = Cache(CACHE_FILENAME)
+
+
+class Track:
   def __init__(self, artist: str, title: str, fetcher_id: str = ''):
-    self.title = title.lower().capitalize()
-    self.artist = artist.lower().title()
+    self.title = title
+    self.artist = artist
     self.fetcher_id = fetcher_id
+
+    if not self.is_lost:
+      self.format_properties()
+
+  def format_properties(self):
+    self.format_artist()
+    self.format_title()
+
+  def format_artist(self):
+    self.artist = self.artist.lower().title()
+
+  def format_title(self):
+    self.title = self.title.lower().capitalize()
+
+  @property
+  def is_lost(self):
+    return self.artist == self.title == UNKNOWN
 
   @property
   def search_term(self):
@@ -87,19 +136,37 @@ class Track:
       return
     return True
 
-  def tag(self):
+  def tag(self, cache):
     eyed3_file = eyed3.load(self.full_path)
     eyed3_file.tag.artist = self.artist
     eyed3_file.tag.title = self.title
     eyed3_file.tag.save()
-    self.cache()
+    self.cache(self.file_name, cache=cache)
 
   @classmethod
-  def fetch_from_cache(cls, file_name, data):
-    item = data.get(file_name)
+  def fetch_from_cache(cls, key, cache):
+    item = cache.get(key)
     if item:
-      print('GOT FROM CACHE!!!')
       return cls(artist=item['artist'], title=item['title'])
+
+  @classmethod
+  def fetch_from_file(cls, path):
+    eyed3_file = eyed3.load(path)
+    if (
+      eyed3_file
+      and eyed3_file.tag
+      #and eyed3_file.tag.artist
+      #and eyed3_file.tag.title
+      and eyed3_file.tag.album
+    ):
+
+      # artist = artist, title = title
+      return cls(
+        artist=eyed3_file.tag.album,
+        title=path.split('/')[-1].split(',')[0],
+      )
+    else:
+      return cls(artist=UNKNOWN, title=UNKNOWN)
 
   def as_dict(self):
     return {
@@ -107,9 +174,9 @@ class Track:
       'title': self.title,
     }
 
-  def cache(self, key, data):
-    if not data.get(key):
-      data[key] = self.as_dict()
+  def cache(self, key, cache):
+    if not cache.get(key):
+      cache.set(key, self.as_dict())
 
 
 class DataManager:
@@ -120,74 +187,46 @@ class DataManager:
     self.name = name
     self.path = path
 
-  def load_all_data(self, verbose=False):
+  def _get_audio_filenames(self):
+    return [
+      item for item in os.listdir(self.path)
+      if item.endswith('.' + AUDIO_FORMAT)
+    ]
 
-    # use context manager (enter -> read, exit -> write)
-    # for cache
-    with open(CACHE_FILE, 'r') as cfile:
-      cached_data = json.load(cfile)
+  def load_all_data(self, verbose=False):
     if verbose:
       mprint(f'Loading all data from {self.name}...', 'normal')
-    try:
-      self.tracks = []
-      filenames = [
-        item for item in os.listdir(self.path)
-        if item.endswith('.' + AUDIO_FORMAT)
-      ]
+    filenames = self._get_audio_filenames()
+    self.tracks = []
+    with Caches.Tracks as cache:
       for fname in filenames:
-        print(fname)
-        if (track := Track.fetch_from_cache(fname, data=cached_data)):
-          """
-          eyed3_file = eyed3.load(os.path.join(self.path, fname))
-          if (
-            eyed3_file
-            and eyed3_file.tag
-            #and eyed3_file.tag.artist
-            #and eyed3_file.tag.title
-            and eyed3_file.tag.album
-          ):
-            track = Track(
-              artist=eyed3_file.tag.album, title=fname.split(',')[0]
-            )
-            print('CACHING', track.full_name)
-            track.cache(fname, data=cached_data)
-          else:
-            self.report_mystery_file(fname)
-            continue
-          """
-          self.tracks.append(track)
-      if verbose:
-        mprint(f'Successfully loaded data from {self.name}!', 'good')
-    except Exception as error:
-      mprint(str(error), 'bad')
-    with open(CACHE_FILE, 'w') as cfile:
-      json.dump(cached_data, cfile)
-
-
-
-  def report_mystery_file(self, name):
-    ...
+        if not (track := Track.fetch_from_cache(fname, cache=cache)):
+          track = Track.fetch_from_file(os.path.join(self.path, fname))
+          track.cache(fname, cache=cache)
+        self.tracks.append(track)
+    if verbose:
+      mprint(f'Successfully loaded data from {self.name}!', 'good')
 
   def get_artists(self):
-    # Consider improving performance
     self.load_all_data()
+    # Disclude UNKNOWNs for special list?
     return sorted({track.artist for track in self.tracks})
 
   def get_tracks_by_artist(self, artist):
-    # Consider improving performance
     return sorted(track.title for track in self.tracks if track.artist == artist)
 
 
 def _fetch_tracks(data):
-  for item in data:
-    if item['artist'].strip() and item['title'].strip():
-      track = Track(
-        title=item['title'],
-        artist=item['artist'],
-        fetcher_id=item['fetcher_id'],
-      )
-      track.fetch()
-      track.tag()
+  with Cache.Tracks as cache:
+    for item in data:
+      if item['artist'].strip() and item['title'].strip():
+        track = Track(
+          title=item['title'],
+          artist=item['artist'],
+          fetcher_id=item['fetcher_id'],
+        )
+        track.fetch()
+        track.tag(cache=cache)
   mprint('Finished fetching tracks!', 'normal')
 
 @eel.expose
