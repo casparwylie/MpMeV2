@@ -1,5 +1,6 @@
 const artistListContainer = document.getElementById('artist-list');
 const trackListContainer = document.getElementById('track-list');
+const deviceListContainer = document.getElementById('device-list');
 
 function loadArtists(source) {
   artistListContainer.replaceChildren();
@@ -34,9 +35,20 @@ function loadTracks(artist, source) {
   });
 }
 
-eel.expose(updateDisk)
-function updateDisk(name) {
-  loadArists('local');
+eel.expose(updateDevices);
+function updateDevices(names) {
+  deviceListContainer.replaceChildren();
+  for (var name of names) {
+    const device = document.createElement("div");
+    device.className = "b-1";
+    device.innerHTML = name;
+    device.addEventListener('click', (evt) => {selectDevice(evt.target.innerHTML)});
+    deviceListContainer.appendChild(device);
+  }
 }
 
-loadArtists('local');
+
+eel.expose(selectDevice);
+function selectDevice(name) {
+  loadArtists(name);
+}

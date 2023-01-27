@@ -25,7 +25,7 @@ YDL_BASE_OPTS = {
     # 'cachedir': False,
 }
 PLATFORM = platform.platform()
-IGNORE_DISKS = {'Macintosh HD'}
+IGNORE_USBS = {'Macintosh HD'}
 MAC_VOLUMES_DIR = '/Volumes'
 LINUX_MOUNT_DIR = '/mnt'
 MAC_PLATFORM_PART = 'macOS'
@@ -179,11 +179,15 @@ class Track:
       cache.set(key, self.as_dict())
 
 
-class DataManager:
+class Device:
 
   def __init__(self, name, path):
-    eel.expose('get_artists_' + name)(self.get_artists)
-    eel.expose('get_tracks_by_artist_' + name)(self.get_tracks_by_artist)
+    # Check func not already registered
+    try:
+      eel.expose('get_artists_' + name)(self.get_artists)
+      eel.expose('get_tracks_by_artist_' + name)(self.get_tracks_by_artist)
+    except:
+      pass
     self.name = name
     self.path = path
 
@@ -209,10 +213,12 @@ class DataManager:
 
   def get_artists(self):
     self.load_all_data()
+    print(self.name, 'LOADING')
     # Disclude UNKNOWNs for special list?
     return sorted({track.artist for track in self.tracks})
 
   def get_tracks_by_artist(self, artist):
+    self.load_all_data()
     return sorted(track.title for track in self.tracks if track.artist == artist)
 
 
@@ -237,54 +243,76 @@ def fetch_tracks(data):
 class DeviceManager:
 
   def __init__(self):
-    self.available_disks = []
+    self.devices = []
+    self.current_usbs = set()
     self.selected_disk = None
-    self.data_manager = DataManager('device', path='')
 
   @property
-  def device_location_path(self):
+  def usb_mount_path(self):
     if MAC_PLATFORM_PART in PLATFORM:
       return MAC_VOLUMES_DIR
     raise Exception(UNSUPPORTED_OS_MSG)
 
-  def find_disks(self):
-    available_disks = set(os.listdir(self.device_location_path))
-    return available_disks - IGNORE_DISKS
+  @property
+  def device_names(self):
+    return [device.name for device in self.devices]
 
-  def _poll_disks(self):
+  def add(self, device: Device):
+    self.devices.append(device)
+    eel.updateDevices(self.device_names)
+
+  def remove(self, device):
+    self.devices.remove(device)
+    eel.updateDevices(self.device_names)
+
+  def find_usbs(self):
+    available_usbs = set(os.listdir(self.usb_mount_path))
+    return available_usbs - IGNORE_USBS
+
+  def _get_device_by_name(self, name):
+    try:
+      return [
+        device for device in self.devices if device.name == name
+      ][0]
+    except IndexError:
+      ...
+
+  def _poll_usbs(self):
     while True:
-      new_disks = self.find_disks()
-      if self.selected_disk and self.selected_disk not in new_disks:
-        self.selected_disk = None
-        mprint('External disk removed', 'bad')
-      if detected_diff := (new_disks - self.available_disks):
-        mprint('External disk detected!', 'good')
-        self.selected_disk = list(detected_diff)[0]
-        self.read_disk()
-      self.available_disks = new_disks
+      usbs = self.find_usbs()
+      removed = list(self.current_usbs - usbs)
+      added = list(usbs - self.current_usbs)
+      if removed:
+        mprint(f'External disk removed {removed[0]}', 'bad')
+        self.remove(self._get_device_by_name(removed[0]))
+      elif added:
+        mprint(f'External disk detected {added[0]}!', 'good')
+        self.add(
+          Device(
+            name=added[0],
+            path=os.path.join(self.usb_mount_path, added[0]),
+          )
+        )
+      self.current_usbs = usbs
       eel.sleep(1)
 
-  def poll_disks(self):
-    self.available_disks = self.find_disks()
-    threading.Thread(target=self._poll_disks).start()
+  def poll_usbs(self):
+    threading.Thread(target=self._poll_usbs).start()
 
-  def read_disk(self):
-    if not self.selected_disk:
-      raise Exception('Unexpected disk read')
-    self.data_manager.path=os.path.join(
-      self.device_location_path, self.selected_disk,
-    )
 
 
 def main():
 
-  data_manager = DataManager(name='local', path=DATA_DIR)
   device_manager = DeviceManager()
-  device_manager.poll_disks()
+  local_device = Device(name='local', path=DATA_DIR)
 
   eel.init('frontend')
 
-  data_manager.load_all_data(verbose=True)
+  device_manager.add(local_device)
+  eel.selectDevice(local_device.name);
+  device_manager.poll_usbs()
+
+
 
   eel.start('main.html')
 
