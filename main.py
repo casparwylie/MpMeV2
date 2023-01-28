@@ -80,16 +80,6 @@ class Track:
     if not self.is_lost:
       self.format_properties()
 
-  def format_properties(self):
-    self.format_artist()
-    self.format_title()
-
-  def format_artist(self):
-    self.artist = self.artist.lower().title()
-
-  def format_title(self):
-    self.title = self.title.lower().capitalize()
-
   @property
   def is_lost(self):
     return self.artist == self.title == UNKNOWN
@@ -109,6 +99,16 @@ class Track:
   @property
   def full_path(self):
     return os.path.join(DATA_DIR, self.file_name)
+
+  def format_properties(self):
+    self.format_artist()
+    self.format_title()
+
+  def format_artist(self):
+    self.artist = self.artist.lower().title()
+
+  def format_title(self):
+    self.title = self.title.lower().capitalize()
 
   def download_progress_hook(self, info):
     return eel.updateFetcherTrackProgress(self.fetcher_id, info.get('_percent_str', "100%"))
@@ -204,6 +204,7 @@ class Device:
     self.tracks = []
     with Caches.Tracks as cache:
       for fname in filenames:
+        print(fname)
         if not (track := Track.fetch_from_cache(fname, cache=cache)):
           track = Track.fetch_from_file(os.path.join(self.path, fname))
           track.cache(fname, cache=cache)
@@ -213,7 +214,6 @@ class Device:
 
   def get_artists(self):
     self.load_all_data()
-    print(self.name, 'LOADING')
     # Disclude UNKNOWNs for special list?
     return sorted({track.artist for track in self.tracks})
 
@@ -243,9 +243,13 @@ def fetch_tracks(data):
 class DeviceManager:
 
   def __init__(self):
-    self.devices = []
-    self.current_usbs = set()
+    self._devices = {}
+    self._current_usbs = set()
     self.selected_disk = None
+
+  def activate(self):
+    self.load_local()
+    self.poll_usbs()
 
   @property
   def usb_mount_path(self):
@@ -254,37 +258,35 @@ class DeviceManager:
     raise Exception(UNSUPPORTED_OS_MSG)
 
   @property
-  def device_names(self):
-    return [device.name for device in self.devices]
+  def device_names(self) -> list:
+    return list(self._devices.keys())
 
-  def add(self, device: Device):
-    self.devices.append(device)
+  def load_local(self) -> None:
+    self.add(local_device := Device(name='local', path=DATA_DIR))
+
+  def add(self, device: Device) -> None:
+    self._devices[device.name] = device
     eel.updateDevices(self.device_names)
 
-  def remove(self, device):
-    self.devices.remove(device)
+  def remove(self, device: Device) -> None:
+    self._devices.pop(device.name)
     eel.updateDevices(self.device_names)
 
-  def find_usbs(self):
+  def find_usbs(self) -> set[str]:
     available_usbs = set(os.listdir(self.usb_mount_path))
     return available_usbs - IGNORE_USBS
-
-  def _get_device_by_name(self, name):
-    try:
-      return [
-        device for device in self.devices if device.name == name
-      ][0]
-    except IndexError:
-      ...
 
   def _poll_usbs(self):
     while True:
       usbs = self.find_usbs()
-      removed = list(self.current_usbs - usbs)
-      added = list(usbs - self.current_usbs)
+
+      # TODO: consider multiple devices arrving/leaving in the same
+      # poll iteration
+      removed = list(self._current_usbs - usbs)
+      added = list(usbs - self._current_usbs)
       if removed:
         mprint(f'External disk removed {removed[0]}', 'bad')
-        self.remove(self._get_device_by_name(removed[0]))
+        self.remove(self._devices[removed[0]])
       elif added:
         mprint(f'External disk detected {added[0]}!', 'good')
         self.add(
@@ -293,7 +295,7 @@ class DeviceManager:
             path=os.path.join(self.usb_mount_path, added[0]),
           )
         )
-      self.current_usbs = usbs
+      self._current_usbs = usbs
       eel.sleep(1)
 
   def poll_usbs(self):
@@ -301,23 +303,23 @@ class DeviceManager:
 
 
 
+class MainContext:
+
+  def __init__(self):
+    eel.expose(self.get_inital_devices)
+    eel.init('frontend')
+    self.device_manager = DeviceManager()
+
+  def __call__(self):
+    self.device_manager.activate()
+    eel.start('main.html')
+
+  def get_inital_devices(self):
+    return self.device_manager.device_names
+
+
 def main():
-
-  device_manager = DeviceManager()
-  local_device = Device(name='local', path=DATA_DIR)
-
-  eel.init('frontend')
-
-  device_manager.add(local_device)
-  eel.selectDevice(local_device.name);
-  device_manager.poll_usbs()
-
-
-
-  eel.start('main.html')
-
-
-
+  return MainContext()()
 
 if __name__ == "__main__":
   main()

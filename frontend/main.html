@@ -50,19 +50,29 @@
 
     .b-1 {
       padding: 5px;
-      border-right: 3px solid #517b8d;
       background: #517b8d;
       cursor: pointer;
     }
 
-    .list-column {
-      margin-left: 2px;
+    #list-container {
       background: #87CEEB;
-      padding: 20px;
+    }
+
+    #track-container {
+      background: #517b8d;
+    }
+
+    .list-column {
+      height: 100%;
+      text-align: center;
+      width: 50%;
+      overflow-y: auto;
     }
 
     #dual-list {
       display: flex;
+      height: 80vh;
+      width: 40vw;
     }
 
     #fetcher-container {
@@ -142,16 +152,21 @@
 
     .artist-row {
       cursor: pointer;
+      border-bottom: 1px dotted #6ca4bc;
 
     }
     .artist-row:hover {
       text-decoration: underline;
     }
 
-    .artist-selected {
+    .device-selected {
       font-weight: bold;
-      text-decoration: underline;
-      text-shadow: 0px 0px 5px grey;
+      background: #87CEEB;
+    }
+
+    .artist-selected {
+      background: #517b8d;
+      font-weight: bold;
     }
 
     .closer {
@@ -159,6 +174,9 @@
       text-align: right;
       padding-bottom: 10px;
       cursor: pointer;
+    }
+
+    .device-opt {
     }
   </style>
 </head>
@@ -173,10 +191,7 @@
     <div class="main-menu-option" id="fetch-option">Fetch YouTube</div>
   </div><br>
   <div id="track-viewer">
-    <div id="device-list">
-      <div class="b-1">Local</div>
-      <div class="b-1">Device</div>
-    </div>
+    <div id="device-list"></div>
     <div id="dual-list">
       <div id="list-container" class="list-column">
         <h2>Artists</h2>

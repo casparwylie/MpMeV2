@@ -4,6 +4,7 @@ const deviceListContainer = document.getElementById('device-list');
 
 function loadArtists(source) {
   artistListContainer.replaceChildren();
+  trackListContainer.replaceChildren();
   eel['get_artists_' + source]()((results) => {
     for (var artistName of results) {
       const artistRow = document.createElement('div');
@@ -16,10 +17,7 @@ function loadArtists(source) {
 }
 
 function selectArtist(evt, source) {
-  for (var element of document.getElementById('artist-list').children) {
-    element.classList.remove('artist-selected');
-  }
-  evt.target.classList.add('artist-selected');
+  select(evt.target, 'artist-selected', 'artist-list');
   loadTracks(evt.target.innerHTML, source);
 }
 
@@ -37,18 +35,43 @@ function loadTracks(artist, source) {
 
 eel.expose(updateDevices);
 function updateDevices(names) {
+  var selected;
+  for (var element of document.getElementById('device-list').children) {
+    if (element.classList.contains('device-selected')) {
+      selected = element.innerHTML;
+      break;
+    }
+  }
   deviceListContainer.replaceChildren();
   for (var name of names) {
     const device = document.createElement("div");
-    device.className = "b-1";
+    device.className = "device-opt b-1";
     device.innerHTML = name;
-    device.addEventListener('click', (evt) => {selectDevice(evt.target.innerHTML)});
+    device.addEventListener('click', (evt) => {selectDevice(evt.target)});
     deviceListContainer.appendChild(device);
+    if( name == selected ) {
+      select(device, 'device-selected', 'device-list');
+    }
   }
 }
 
 
-eel.expose(selectDevice);
-function selectDevice(name) {
-  loadArtists(name);
+function select(target, selectClass, listId) {
+  for (var element of document.getElementById(listId).children) {
+    element.classList.remove(selectClass);
+  }
+  target.classList.add(selectClass);
 }
+
+eel.expose(selectDevice);
+function selectDevice(target) {
+  select(target, 'device-selected', 'device-list');
+  loadArtists(target.innerHTML);
+}
+
+
+eel.get_inital_devices()((results) => {
+  updateDevices(results);
+  const device = document.getElementById('device-list').children[0];
+  selectDevice(device);
+});
