@@ -7,6 +7,13 @@ function jsprint(message, mood='normal') {
   setTimeout(function(){messageRow.remove()}, 4000);
 }
 
+function hide_element(element) {
+  element.style = "display: none;";
+}
+
+function show_element(element) {
+  element.style = "display: block;";
+}
 
 for (element of document.getElementsByClassName("closer")) {
   element.addEventListener('click', () => {

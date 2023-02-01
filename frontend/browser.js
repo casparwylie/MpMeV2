@@ -1,11 +1,24 @@
+const syncAllDevicesOption = document.getElementById('sync-all-option');
 const artistListContainer = document.getElementById('artist-list');
 const trackListContainer = document.getElementById('track-list');
 const deviceListContainer = document.getElementById('device-list');
+const loadingIcon = document.getElementById('loading');
 
+
+syncAllDevicesOption.addEventListener('click', (evt) => {
+  show_element(loadingIcon);
+  eel.sync_all()(() => {
+    hide_element(loadingIcon);
+  })
+})
+
+eel.expose(loadArtists)
 function loadArtists(source) {
   artistListContainer.replaceChildren();
   trackListContainer.replaceChildren();
-  eel['get_artists_' + source]()((results) => {
+  show_element(loadingIcon);
+  eel.load_artists(source)((results) => {
+    hide_element(loadingIcon);
     for (var artistName of results) {
       const artistRow = document.createElement('div');
       artistRow.innerHTML = artistName;
@@ -23,7 +36,7 @@ function selectArtist(evt, source) {
 
 function loadTracks(artist, source) {
   trackListContainer.replaceChildren();
-  eel['get_tracks_by_artist_' + source](artist)((results) => {
+  eel.load_tracks(source, artist)((results) => {
     for (var trackName of results) {
       const trackRow = document.createElement('div');
       trackRow.innerHTML = trackName;
@@ -36,7 +49,7 @@ function loadTracks(artist, source) {
 eel.expose(updateDevices);
 function updateDevices(names) {
   var selected;
-  for (var element of document.getElementById('device-list').children) {
+  for (var element of deviceListContainer.children) {
     if (element.classList.contains('device-selected')) {
       selected = element.innerHTML;
       break;
@@ -52,6 +65,11 @@ function updateDevices(names) {
     if( name == selected ) {
       select(device, 'device-selected', 'device-list');
     }
+  }
+  if (names.length > 1) {
+    show_element(syncAllDevicesOption);
+  } else {
+    hide_element(syncAllDevicesOption);
   }
 }
 
@@ -70,8 +88,8 @@ function selectDevice(target) {
 }
 
 
-eel.get_inital_devices()((results) => {
+eel.get_device_names()((results) => {
   updateDevices(results);
-  const device = document.getElementById('device-list').children[0];
+  const device = deviceListContainer.children[0];
   selectDevice(device);
 });

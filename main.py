@@ -1,5 +1,6 @@
 import eel
 from dataclasses import dataclass
+import shutil
 import subprocess
 import enum
 import youtube_dl
@@ -43,10 +44,10 @@ def mprint(message, mood='normal'):
 class Cache:
   def __init__(self, cache_filename):
     self.cache_filename = cache_filename
-    self._touch()
     self._data = {}
 
   def __enter__(self):
+    self._touch()
     with open(self.cache_filename, 'r') as cfile:
      self._data = json.load(cfile)
     return self
@@ -72,13 +73,23 @@ class Caches:
 
 
 class Track:
-  def __init__(self, artist: str, title: str, fetcher_id: str = ''):
+  def __init__(self, artist: str, title: str, path: str, fetcher_id: str = ''):
     self.title = title
     self.artist = artist
     self.fetcher_id = fetcher_id
+    self.path = path
 
     if not self.is_lost:
       self.format_properties()
+
+  def __eq__(self, other_track: 'Track') -> bool:
+    return (
+      self.title == other_track.title
+      and self.artist == other_track.artist
+    )
+
+  def __hash__(self) -> int:
+      return hash((self.artist, self.title))
 
   @property
   def is_lost(self):
@@ -98,7 +109,7 @@ class Track:
 
   @property
   def full_path(self):
-    return os.path.join(DATA_DIR, self.file_name)
+    return os.path.join(self.path, self.file_name)
 
   def format_properties(self):
     self.format_artist()
@@ -111,7 +122,9 @@ class Track:
     self.title = self.title.lower().capitalize()
 
   def download_progress_hook(self, info):
-    return eel.updateFetcherTrackProgress(self.fetcher_id, info.get('_percent_str', "100%"))
+    return eel.updateFetcherTrackProgress(
+      self.fetcher_id, info.get('_percent_str', "100%")
+    )
 
   def fetch(self):
     mprint(f'Fetching {self.full_name}...')
@@ -144,29 +157,26 @@ class Track:
     self.cache(self.file_name, cache=cache)
 
   @classmethod
-  def fetch_from_cache(cls, key, cache):
-    item = cache.get(key)
-    if item:
-      return cls(artist=item['artist'], title=item['title'])
+  def fetch_from_cache(cls, path: str, key: str, cache: Cache) -> 'Track':
+    if item := cache.get(key):
+      return cls(artist=item['artist'], title=item['title'], path=path)
 
   @classmethod
-  def fetch_from_file(cls, path):
-    eyed3_file = eyed3.load(path)
+  def fetch_from_file(cls, path: str, fname: str) -> 'Track':
+    eyed3_file = eyed3.load(os.path.join(path, fname))
     if (
       eyed3_file
       and eyed3_file.tag
-      #and eyed3_file.tag.artist
-      #and eyed3_file.tag.title
-      and eyed3_file.tag.album
+      and eyed3_file.tag.artist
+      and eyed3_file.tag.title
     ):
-
-      # artist = artist, title = title
       return cls(
-        artist=eyed3_file.tag.album,
-        title=path.split('/')[-1].split(',')[0],
+        artist=eyed3_file.tag.artist,
+        title=eyed3_file.tag.title,
+        path=path,
       )
     else:
-      return cls(artist=UNKNOWN, title=UNKNOWN)
+      return cls(artist=UNKNOWN, title=UNKNOWN, path=path)
 
   def as_dict(self):
     return {
@@ -183,13 +193,9 @@ class Device:
 
   def __init__(self, name, path):
     # Check func not already registered
-    try:
-      eel.expose('get_artists_' + name)(self.get_artists)
-      eel.expose('get_tracks_by_artist_' + name)(self.get_tracks_by_artist)
-    except:
-      pass
     self.name = name
     self.path = path
+    self.tracks = []
 
   def _get_audio_filenames(self):
     return [
@@ -205,8 +211,8 @@ class Device:
     with Caches.Tracks as cache:
       for fname in filenames:
         print(fname)
-        if not (track := Track.fetch_from_cache(fname, cache=cache)):
-          track = Track.fetch_from_file(os.path.join(self.path, fname))
+        if not (track := Track.fetch_from_cache(self.path, fname, cache=cache)):
+          track = Track.fetch_from_file(path=self.path, fname=fname)
           track.cache(fname, cache=cache)
         self.tracks.append(track)
     if verbose:
@@ -221,18 +227,30 @@ class Device:
     self.load_all_data()
     return sorted(track.title for track in self.tracks if track.artist == artist)
 
+  def compare_data(other_device: 'Device') -> set[Track]:
+    return set(self.tracks) - set(other_device.tracks)
+
+  def save_data(self, tracks: list[Track]) -> None:
+    for track in tracks:
+      from_path = track.full_path
+      to_path = os.path.join(self.path, track.file_name)
+      print(from_path, '>>>', to_path)
+      shutil.copyfile(from_path, to_path)
+
 
 def _fetch_tracks(data):
-  with Cache.Tracks as cache:
+  with Caches.Tracks as cache:
     for item in data:
       if item['artist'].strip() and item['title'].strip():
         track = Track(
           title=item['title'],
           artist=item['artist'],
           fetcher_id=item['fetcher_id'],
+          path=DATA_DIR,
         )
         track.fetch()
         track.tag(cache=cache)
+  eel.loadArtists('local')
   mprint('Finished fetching tracks!', 'normal')
 
 @eel.expose
@@ -272,6 +290,9 @@ class DeviceManager:
     self._devices.pop(device.name)
     eel.updateDevices(self.device_names)
 
+  def get(self, name: str) -> Device:
+    return self._devices[name]
+
   def find_usbs(self) -> set[str]:
     available_usbs = set(os.listdir(self.usb_mount_path))
     return available_usbs - IGNORE_USBS
@@ -301,25 +322,53 @@ class DeviceManager:
   def poll_usbs(self):
     threading.Thread(target=self._poll_usbs).start()
 
+  def sync_all(self):
+    if (device_count := len(self._devices)) < 2:
+      return
+
+    all_tracks = []
+    for device in self._devices.values():
+      all_tracks += device.tracks
+    all_tracks = set(all_tracks)
+
+    for device in self._devices.values():
+      if missing_tracks := all_tracks - set(device.tracks):
+        mprint(f'Adding {len(missing_tracks)} track(s) to {device.name}')
+        device.save_data(missing_tracks)
+        eel.loadArtists(device.name)
+    mprint(f'Finished syncing {device_count} devices!', mood='good')
 
 
 class MainContext:
 
   def __init__(self):
-    eel.expose(self.get_inital_devices)
-    eel.init('frontend')
+    eel.expose(self.get_device_names)
+    eel.expose(self.load_artists)
+    eel.expose(self.load_tracks)
+    eel.expose(self.sync_all)
     self.device_manager = DeviceManager()
 
   def __call__(self):
+    eel.init('frontend')
     self.device_manager.activate()
     eel.start('main.html')
 
-  def get_inital_devices(self):
+  def get_device_names(self):
     return self.device_manager.device_names
+
+  def load_artists(self, source):
+    return self.device_manager.get(source).get_artists()
+
+  def load_tracks(self, source, artist):
+    return self.device_manager.get(source).get_tracks_by_artist(artist)
+
+  def sync_all(self):
+    self.device_manager.sync_all()
 
 
 def main():
-  return MainContext()()
+  main_context = MainContext()
+  return main_context()
 
 if __name__ == "__main__":
   main()
